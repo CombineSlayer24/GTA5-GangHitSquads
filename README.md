@@ -7,7 +7,7 @@ This script is very work in progress. While the core works, some stuff is yet to
 You will need the latest version of Grand Theft Auto 5 (v1.0.3411.0), [ScriptHookV](https://dev-c.com/GTAV/scripthookv), [ScriptHookVDotNet3 - Nightly Compile Version](https://github.com/scripthookvdotnet/scripthookvdotnet-nightly/releases/latest)
 
 # Installation
-To install, Press the green button that says "code". THen hit "Download Zip". Once downloaded, drag `GTA5GangHitSquads.dll` & `GTA5GangHitSquads.ini` to `Grand Theft Auto V\scripts`.
+To install, Press the green button that says "code". THen hit "Download Zip". Once downloaded, drag the `scripts` file to your Grand Theft Auto V directory, do not drag any other stuff except for the scripts file.
 
 # TODO
  - Vehicle Hitmen
