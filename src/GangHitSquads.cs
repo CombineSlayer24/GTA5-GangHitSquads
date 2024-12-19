@@ -107,15 +107,19 @@ namespace GangHitSquads_CS_Script
 	{
 		// Initalize our variables.
 		public string[] sVehiclesHi, sVehiclesLo, sPedsHi, sPedsLo, sWeaponsLo, sWeaponsHi;
+		public VehicleColor? sPrimaryCarColor			= null;
+		public VehicleColor? sSecondaryCarColor			= null;
 		public readonly List<Ped> spawnedEnemies		= new List<Ped>();
 		public readonly List<Ped> enemiesToDel			= new List<Ped>();
 		public Random	random							= new Random();
 		public int		iMaxEnemies						= 0;
-		public int		iTickRate						= 250;
+		public int		iTickRate						= 500;
 		public bool		bShowGangBlipsOnRadar			= true;
 		public bool		bisElitePed						= false;
 		public float	fInVehicleGangCullDistance		= 300.0F;
-		public float	fOnFootGangCullDistance			= 100.0F;
+		public float	fOnFootGangCullDistance			= 125.0F;
+		public int?		primaryColor					= null;
+		public int?		secondaryColor					= null;
 
 		// Dictionary Structs
 		public Dictionary <Ped, Blip>		dBlip		= new Dictionary<Ped, Blip>();
@@ -124,8 +128,7 @@ namespace GangHitSquads_CS_Script
 		// Enums
 		public enum eScriptStatus						{ Off, Running }
 		public eScriptStatus state						= eScriptStatus.Off;
-		public int relationshipGroupEnemies;
-		public static RelationshipGroup HitMenRelationship = World.AddRelationshipGroup( "HITMEN" );
+		public RelationshipGroup relationshipGroupEnemies;
 
 		// Class Structs
 		public class WeaponChance
@@ -142,6 +145,8 @@ namespace GangHitSquads_CS_Script
 			public string[] PedsLo { get; set; }
 			public List<WeaponChance> WeaponsHi { get; set; } = new List<WeaponChance>();
 			public List<WeaponChance> WeaponsLo { get; set; } = new List<WeaponChance>();
+			public int? PrimaryColor { get; set; }
+			public int? SecondaryColor { get; set; }
 			public string NotificationMessage { get; set; }
 		}
 
@@ -151,6 +156,8 @@ namespace GangHitSquads_CS_Script
 			Tick += OnTick;
 			Interval = iTickRate;
 			InitializeGangs();
+
+			relationshipGroupEnemies = World.AddRelationshipGroup( "HITMEN" );
 
 			try
 			{
@@ -188,12 +195,15 @@ namespace GangHitSquads_CS_Script
 					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 20 },
 					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 20 }
 				},
+				PrimaryColor = 53,
+				SecondaryColor = 53,
 				NotificationMessage = "~r~Grove Street Families~w~ are out for you."
 			} );
 			
 			// Ballas
 			dGang.Add( 1, new GangData
 			{
+				// Temp vehicles
 				VehiclesHi = new[] { "Cavalcade", "baller", "baller3", "Baller8", "peyote3", "Voodoo", "primo2", "tornado5", "manana2" },
 				VehiclesLo = new[] { "emperor", "manana", "tornado", "tornado5", "bucanneer", "peyote", "peyote3", "Voodoo", "primo2", "bmx" },
 				PedsHi = new[] { "IG_Johnny_Guns", "IG_Ballas_Leader" },
@@ -208,6 +218,8 @@ namespace GangHitSquads_CS_Script
 					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 60 },
 					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 20 },
 				},
+				PrimaryColor = 145,
+				SecondaryColor = 153,
 				NotificationMessage = "~r~Ballas~w~ are out hunting you down!"
 			} );
 
@@ -228,10 +240,15 @@ namespace GangHitSquads_CS_Script
 				sPedsLo = selectedGang.PedsLo;
 				// Handle the weapon setup inside GiveWeaponsToPed()
 
+				primaryColor = selectedGang.PrimaryColor;
+				secondaryColor = selectedGang.SecondaryColor;
+
 				// Alert the player of which gang will attack next
 				string message = $"{ selectedGang.NotificationMessage } { iMaxEnemies } Active goons!";
 				ShowNotification( message, "CHAR_SIMEON" ); // PLACEHOLDER CHARACTER ICON
 			}
+
+			Function.Call( Hash.PLAY_SOUND_FRONTEND, 0, "CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET" );
 
 			Wait( 1500 );
 			// Player cusses the fuck out after getting this
@@ -315,10 +332,11 @@ namespace GangHitSquads_CS_Script
 					break;
 				}
 			}
-			if ( e.KeyCode == Keys.X )
-			{
-				SpawnVehicleEnemy();
-			}
+			// For testing
+//			if ( e.KeyCode == Keys.X )
+//			{
+//				SpawnVehicleEnemy();
+//			}
 		}
 
 		public void ProcessScriptTick()
@@ -363,14 +381,13 @@ namespace GangHitSquads_CS_Script
 
 					ShowSubtitleText( $"Enemies Can Fight: ~y~{ enemiesCanFight }~n~~w~Max Enemies: ~y~{ iMaxEnemies }" );
 
-					/*if ( enemiesCanFight < iMaxEnemies )
-					{
-						if ( GetRandomNumber( 500000 ) < 50000 )
-						{
-							SpawnFootEnemy();
-						}
-					}*/
-				break;
+					if ( enemiesCanFight < iMaxEnemies )
+						if ( GetRandomNumber( 500000 ) < 40000 )
+							if ( GetRandomNumber( 100 ) > 25 )
+								SpawnFootEnemy();
+							else
+								SpawnVehicleEnemy();
+					break;
 			}
 		}
 
@@ -382,43 +399,37 @@ namespace GangHitSquads_CS_Script
 			pEnemy.Weapons.Give( selectedWeapon.WeaponHash, 9999, true, true );
 		}
 
-		public void CreatePedInVehicle( Vehicle vEnemyVehicle, string sPedModel, bool bIsFirstPed = true )
+		private void CreatePedInVehicle( Vehicle enemyVehicle, string pedModel, VehicleSeat seat )
 		{
 			try
 			{
-				// Create a ped in the vehicle
-				Ped pEnemy = vEnemyVehicle.CreatePedOnSeat(VehicleSeat.Any, sPedModel);
-
+				Ped pEnemy = World.CreatePed(pedModel, enemyVehicle.Position);
 				if ( IsValidEntity( pEnemy ) )
 				{
+					pEnemy.SetIntoVehicle( enemyVehicle, seat ); // Set initial position
+					pEnemy.Task.WarpIntoVehicle( enemyVehicle, seat ); // Warp to make sure they are in the vehicle
 					SetPedInfo( pEnemy );
-					VehicleSeat seatToAssign = bIsFirstPed ? VehicleSeat.Driver : VehicleSeat.Any;
-					if ( vEnemyVehicle.IsSeatFree( seatToAssign ) )
+
+					// Make sure the ped doesn't exit the vehicle when shot at (for driver)
+					if ( seat == VehicleSeat.Driver )
 					{
-						Function.Call( Hash.TASK_WARP_PED_INTO_VEHICLE, pEnemy.Handle, vEnemyVehicle.Handle, ( int ) seatToAssign );
-						if ( bIsFirstPed ) // Only set driving task for the driver
-						{
-							pEnemy.Task.DriveTo( vEnemyVehicle, Game.Player.Character.Position, 65f, VehicleDrivingFlags.DrivingModeAvoidVehicles, 30f );
-						}
-					}
-					else
-					{
-						ShowNotification( "No free seat available in the vehicle" );
+						pEnemy.Task.DriveTo( enemyVehicle, GetPlayerCharacter().Position, 90f, VehicleDrivingFlags.DrivingModeAvoidVehiclesReckless, 10.0f );
 					}
 				}
 			}
 			catch ( Exception )
 			{
-				throw new Exception( $"Invalid ped model: {sPedModel}" );
+				throw new Exception( $"Invalid ped model: {pedModel}" );
 			}
 		}
 
-
-		public void SpawnVehicleEnemy()
+		private void SpawnVehicleEnemy()
 		{
-			string enemyVehicleModel, enemyPedModel;	
+			string enemyVehicleModel;
+			string enemyPedModel;
+			Vector3 spawnPos = SetSpawnAroundPlayer("Vehicle");
 
-			if ( GetRandomNumber( 100 ) > 75 )
+			if ( GetRandomNumber( 100 ) < 25 )
 			{
 				enemyVehicleModel = RandomChoice( sVehiclesHi );
 				enemyPedModel = RandomChoice( sPedsHi );
@@ -428,65 +439,129 @@ namespace GangHitSquads_CS_Script
 			{
 				enemyVehicleModel = RandomChoice( sVehiclesLo );
 				enemyPedModel = RandomChoice( sPedsLo );
+				bisElitePed = false;
 			}
+
 			try
 			{
-				Vector3 spawnPos = SetSpawnAroundPlayer( "Vehicle" );
-				Vehicle enemyVehicle = World.CreateVehicle( enemyVehicleModel, spawnPos );
+				Vehicle enemyVehicle = World.CreateVehicle(enemyVehicleModel, spawnPos);
 				if ( IsValidEntity( enemyVehicle ) )
 				{
-					//enemyVehicle.PlaceOnNextStreet();
+					enemyVehicle.PlaceOnNextStreet();
 
 					// Set the vehicle's orientation to face the player
-					Vector3 directionToPlayer = ( GetPlayerCharacter().Position - enemyVehicle.Position );
+					/*Vector3 directionToPlayer = ( GetPlayerCharacter().Position - enemyVehicle.Position );
 					directionToPlayer.Normalize();
 					float heading = ( float )( Math.Atan2( directionToPlayer.X, directionToPlayer.Y ) * -180.0 / Math.PI );
 					if ( heading < 0 ) heading += 360;
 					enemyVehicle.Heading = heading;
+					*/
 
-					CreatePedInVehicle( enemyVehicle, enemyPedModel, true );
+					// Get the road position and heading
+					OutputArgument roadPos = new OutputArgument();
+					OutputArgument roadHeading = new OutputArgument();
+					Function.Call( Hash.GET_CLOSEST_VEHICLE_NODE_WITH_HEADING, spawnPos.X, spawnPos.Y, spawnPos.Z, roadPos, roadHeading );
 
-					// Array of additionalpassengers for additional peds
-					// 50% chance to create the 2nd passengers
-					// 32% for the 3rd, 18% for 4th.
-					int[] additionalpassengers = { 50, 32, 18 };
+					Vector3 realRoadPos = roadPos.GetResult<Vector3>();
+					float realRoadHeading = roadHeading.GetResult<float>();
 
-					// Loop over the additionalpassengers
-					foreach ( int probability in additionalpassengers )
+					// Place the vehicle on the road with the correct heading for traffic
+					enemyVehicle.Position = realRoadPos;
+					enemyVehicle.Heading = realRoadHeading;
+
+
+					// Use native function to set vehicle colors
+					if ( primaryColor.HasValue || secondaryColor.HasValue )
 					{
-						// If GetRandomNumber(100) is less than the current probability, create an additional ped
-						if ( GetRandomNumber( 100 ) < probability && enemyVehicle.IsSeatFree( VehicleSeat.Any ) )
+						int pColor = primaryColor.HasValue ? primaryColor.Value : -1; // -1 means don't change
+						int sColor = secondaryColor.HasValue ? secondaryColor.Value : -1; // -1 means don't change
+						Function.Call( Hash.SET_VEHICLE_COLOURS, enemyVehicle, pColor, sColor );
+					}
+
+					RandomizeVehicleMods( enemyVehicle );
+
+					// Create the driver
+					CreatePedInVehicle( enemyVehicle, enemyPedModel, VehicleSeat.Driver );
+
+					// Determine how many seats are available
+					int availableSeats = CalculateAvailableSeats( enemyVehicle ) - 1; // Subtract 1 for the driver
+
+					// Array of probabilities for additional passengers, but only if there are seats available
+					int[] additionalPassengers = { 75, 50, 32, 18 };
+					int passengerCount = 0;
+					for ( int seatIndex = 0; seatIndex < 16 && passengerCount < availableSeats; seatIndex++ ) // Loop through possible seats
+					{
+						if ( GetRandomNumber( 100 ) < additionalPassengers[ passengerCount % additionalPassengers.Length ] ) // Cycle through probabilities
 						{
-							// Choose a new ped model for each passenger
-							// Maybe we should have an asortment for random picks here???
-							// But this could screw up the blips...
-							string passengerModel;
-							if ( bisElitePed )
+							VehicleSeat seat = ( VehicleSeat )seatIndex;
+							if ( enemyVehicle.IsSeatFree( seat ) )
 							{
-								passengerModel = RandomChoice( sPedsHi );
+								string passengerModel = bisElitePed ? RandomChoice( sPedsHi ) : RandomChoice( sPedsLo );
+								CreatePedInVehicle( enemyVehicle, passengerModel, seat );
+								passengerCount++;
 							}
 							else
 							{
-								passengerModel = RandomChoice( sPedsLo );
+								// If the seat isn't free, we continue to the next seat without increasing passengerCount
+								continue;
 							}
-
-							CreatePedInVehicle( enemyVehicle, passengerModel, false );
 						}
 					}
 
+					// Add Blip (assuming you want to add one)
 					Blip blip = enemyVehicle.AddBlip();
 					if ( blip != null )
 					{
 						ConfigureBlip( blip, "Vehicle" );
 					}
 
+					// We should probably do this the same with on foot peds
+					// Mark them no longer needed if they get too far away from ply.
 					enemyVehicle.MarkAsNoLongerNeeded();
 				}
 			}
 			catch ( Exception )
 			{
-				ShowNotification( string.Format( "Invalid vehicle model: {0}", enemyVehicleModel ) );
+				ShowNotification( $"Invalid vehicle model: {enemyVehicleModel}" );
 			}
+		}
+
+		private void RandomizeVehicleMods( Vehicle vehicle )
+		{
+			for ( int modType = 0; modType < 50; modType++ ) // There are roughly 50 ish mod types in GTA V, though not all are used for every vehicle
+			{
+				int modCount = Function.Call<int>( Hash.GET_NUM_VEHICLE_MODS, vehicle, modType );
+				if ( modCount > 0 )
+				{
+					// -1 is for stock, so we start from 0 for customizing
+					int randomMod = GetRandomNumber( 0, modCount );
+					Function.Call( Hash.SET_VEHICLE_MOD, vehicle, modType, randomMod, false ); // false here means do not use custom tire smoke
+				}
+			}
+
+			// Randomize wheels specifically since they have a separate native function
+			int wheelType = GetRandomNumber( 0, 7 ); // 0-6 are valid wheel types
+			Function.Call( Hash.SET_VEHICLE_WHEEL_TYPE, vehicle, wheelType );
+			int wheelModCount = Function.Call<int>( Hash.GET_NUM_VEHICLE_MODS, vehicle, 23 ); // 23 is the mod type for wheels
+			if ( wheelModCount > 0 )
+			{
+				int randomWheel = GetRandomNumber( 0, wheelModCount);
+				Function.Call( Hash.SET_VEHICLE_MOD, vehicle, 23, randomWheel, false );
+			}
+		}
+
+		private int CalculateAvailableSeats( Vehicle vehicle )
+		{
+			int count = 0;
+			for ( int seatIndex = -1; seatIndex <= 15; seatIndex++ ) // -1 for driver, 0-15 for passengers
+			{
+				VehicleSeat seat = (VehicleSeat)seatIndex;
+				if ( vehicle.IsSeatFree( seat ) )
+				{
+					count++;
+				}
+			}
+			return count;
 		}
 
 		public Vector3 SetSpawnAroundPlayer( string sSpawnType = "StreetPed" )
@@ -539,7 +614,7 @@ namespace GangHitSquads_CS_Script
 		{
 			string enemyPedModel;
 			//enemyPedModel = RandomChoice( sPedsLo );
-			if ( GetRandomNumber( 100 ) > 75 )
+			if ( GetRandomNumber( 100 ) < 25 )
 			{
 				enemyPedModel = RandomChoice( sPedsHi );
 				bisElitePed = true;
@@ -547,6 +622,7 @@ namespace GangHitSquads_CS_Script
 			else
 			{
 				enemyPedModel = RandomChoice( sPedsLo );
+				bisElitePed = false;
 			}
 
 			Vector3 spawnPos = SetSpawnAroundPlayer( "StreetPed" );
@@ -591,9 +667,19 @@ namespace GangHitSquads_CS_Script
 				Function.Call( Hash.SET_PED_CONFIG_FLAG, pEnemy, 227, true );       // CPED_CONFIG_FLAG_ForceRagdollUponDeath
 
 				// Set relationships
-				//Function.Call( Hash.SET_RELATIONSHIP_BETWEEN_GROUPS, 5, GetPlayerCharacter(), relationshipGroupEnemies );
-				//Function.Call( Hash.SET_RELATIONSHIP_BETWEEN_GROUPS, 5, relationshipGroupEnemies, GetPlayerCharacter() );
-				Function.Call( Hash.SET_RELATIONSHIP_BETWEEN_GROUPS, 1, relationshipGroupEnemies, relationshipGroupEnemies );
+				// Make sure all hitmen are in the same relationship group
+				if ( pEnemy.RelationshipGroup != relationshipGroupEnemies )
+				{
+					pEnemy.RelationshipGroup = relationshipGroupEnemies;
+				}
+
+				// Set relationship with player to hate
+				Function.Call( Hash.SET_RELATIONSHIP_BETWEEN_GROUPS, 5, relationshipGroupEnemies, Game.Player.Character.RelationshipGroup ); // 5 is for Hate
+				Function.Call( Hash.SET_RELATIONSHIP_BETWEEN_GROUPS, 5, Game.Player.Character.RelationshipGroup, relationshipGroupEnemies );
+
+				// Make sure hitmen like each other within the group
+				Function.Call( Hash.SET_RELATIONSHIP_BETWEEN_GROUPS, 1, relationshipGroupEnemies, relationshipGroupEnemies ); // 1 is for Like
+
 
 				pEnemy.Task.ClearAll();
 				pEnemy.Task.Combat( GetPlayerCharacter() );
