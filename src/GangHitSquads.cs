@@ -1,3 +1,6 @@
+using GTA;
+using GTA.Math;
+using GTA.Native;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -5,9 +8,6 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using GTA;
-using GTA.Math;
-using GTA.Native;
 
 namespace GangHitSquads_CS_Script
 {
@@ -108,22 +108,25 @@ namespace GangHitSquads_CS_Script
 	{
 		// Initalize our variables.
 		public string[] sVehiclesHi, sVehiclesLo, sPedsHi, sPedsLo, sWeaponsLo, sWeaponsHi;
-		public readonly List<Ped> spawnedEnemies				= new List<Ped>();
+		public readonly List<Ped> activeSpawnedHitmen			= new List<Ped>();
 		public readonly List<Ped> enemiesToDel					= new List<Ped>();
 		public Random	random									= new Random();
 		public int		iMaxEnemies								= 0;
-		public int		iTickRate								= 500;
 		public int?     primaryColor                            = null;
 		public int?     secondaryColor                          = null;
-		public int      iCurrentGangIndex                        = -1;
-		public bool		bShowGangBlipsOnRadar					= true;
+		public int      iCurrentGangIndex                       = -1;
 		public bool		bisElitePed								= false;
 		public float	fInVehicleGangCullDistance				= 300.0F;
 		public float	fOnFootGangCullDistance					= 125.0F;
 
+		// Configs
+		public int      iTickRate                               = 500;
+		public bool     bShowGangBlipsOnRadar                   = true;
+		public bool     bIsDebugMode                            = false;
+
 		// Dictionary Structs
 		public Dictionary <Ped, Blip>		dBlip				= new Dictionary <Ped, Blip>();
-		public Dictionary <int, GangData>	dGang				= new Dictionary <int, GangData>();
+		public Dictionary <int, GangData>   dGang               = new Dictionary <int, GangData>();
 		public Dictionary <Ped, Vector3>	lastPositions		= new Dictionary <Ped, Vector3>();
 		public Dictionary <Ped, DateTime>	lastCheckedTimes	= new Dictionary <Ped, DateTime>();
 		
@@ -132,9 +135,13 @@ namespace GangHitSquads_CS_Script
 		public const int CHECK_INTERVAL							= 3000; // Check every 3 seconds in milliseconds
 		public const int GANG_FAM								= 0;	// Families
 		public const int GANG_BAL								= 1;	// Ballas
-		public const int GANG_VAG								= 2;	// Vagos
-		public const int GANG_GOVT								= 3;	// S.A Govt.
-		public const int GANG_DUG								= 4;	// Duggans Crime Family
+		public const int GANG_LSV								= 2;	// Vagos
+		public const int GANG_VLA								= 3;    // Aztecas
+		public const int GANG_MBG								= 4;    // Marabunta Grande
+		public const int GANG_LST								= 5;    // Los Santos Triads
+		public const int GANG_GOVT								= 6;    // S.A Govt.
+		public const int GANG_MGC                               = 7;    // Main Game Characters
+		public const int GANG_DUG								= 8;    // Duggans Crime Family
 
 
 		// Enums
@@ -175,6 +182,7 @@ namespace GangHitSquads_CS_Script
 			{
 				IniFile config = new IniFile( "scripts\\GTA5GangHitSquads.ini" );
 				bShowGangBlipsOnRadar = config.GetBoolValue( "SETTINGS", "ShowBlipsOnGangs", true );
+				bIsDebugMode = config.GetBoolValue( "SETTINGS", "DebugMode", false );
 				//iTickRate = config.GetIntValue( "SETTINGS", "ScriptTickRate", 500 );
 			}
 			catch ( FileNotFoundException )
@@ -187,26 +195,45 @@ namespace GangHitSquads_CS_Script
 			}
 		}
 
-		/*public void ClearScriptVars()
+		public void ClearScriptVars()
 		{
+			// Reset gang-related arrays
 			sVehiclesHi			= null;
 			sVehiclesLo			= null;
 			sPedsHi				= null;
 			sPedsLo				= null;
 			sWeaponsLo			= null;
 			sWeaponsHi			= null;
+
+			// Reset color and gameplay variables
 			primaryColor		= null;
 			secondaryColor		= null;
 			iMaxEnemies			= 0;
 			iCurrentGangIndex	= -1;
 			bisElitePed			= false;
 			eState				= eScriptStatus.Off;
+
+
+			// Clear dictionaries and lists
 			dBlip.Clear();
 			lastPositions.Clear();
 			lastCheckedTimes.Clear();
-			spawnedEnemies.Clear();
 			enemiesToDel.Clear();
-		}*/
+			activeSpawnedHitmen.Clear();
+
+			// Clear relationship group
+			if ( relationshipGroupEnemies != null )
+			{
+				Function.Call( Hash.REMOVE_RELATIONSHIP_GROUP, relationshipGroupEnemies );
+				relationshipGroupEnemies = null;
+			}
+
+			// Log for debugging
+			if ( bIsDebugMode )
+			{
+				ShowSubtitleText( "~g~Script variables cleared successfully!", 2000 );
+			}
+		}
 
 		// Sets up our gang data
 		public void InitializeGangs()
@@ -217,135 +244,293 @@ namespace GangHitSquads_CS_Script
 			// Grove Street Families
 			dGang.Add( GANG_FAM, new GangData
 			{
-				VehiclesHi = new[] { "CAVALCADE", "BALLER", "BALLER3", "BALLER8", "PEYOTE3", "VOODOO", "PRIMO2", "TORNADO5", "MANANA2", "NEMESIS" },
-				VehiclesLo = new[] { "EMPEROR", "MANANA", "TORNADO", "TORNADO5", "BUCANNEER", "PEYOTE", "PEYOTE3", "VOODOO", "PRIMO2", "BMX", "NEMESIS", "BALLER3" },
-				PedsHi = new[] { "IG_VERNON", "A_M_M_OG_BOSS_01", "IG_STRETCH", "IG_LAMARDAVIS", "G_M_Y_FAMCA_01", "G_M_Y_FAMDNF_01" },
+				VehiclesHi = new[] { "CAVALCADE", "BALLER", "BALLER3", "BALLER8", "PEYOTE3", "VOODOO", "PRIMO2", "TORNADO5", "MANANA2", "NEMESIS", "IMPALER5", "HUSTLER" },
+				VehiclesLo = new[] { "EMPEROR", "MANANA", "TORNADO", "TORNADO5", "BUCANNEER", "PEYOTE", "PEYOTE3", "VOODOO", "PRIMO2", "BMX", "NEMESIS", "BALLER3", "IMPALER5" },
+				PedsHi = new[] { "IG_VERNON", "A_M_M_OG_BOSS_01", "IG_STRETCH", "IG_LAMARDAVIS", "G_M_Y_FAMCA_01", "G_M_Y_FAMDNF_01", "IG_RAMP_GANG" },
 				PedsLo = new[] { "G_F_Y_FAMILIES_01", "G_M_Y_FAMCA_01", "G_M_Y_FAMDNF_01", "G_M_Y_FAMFOR_01" },
 				WeaponsHi = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 60 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 }
+			},
 				WeaponsLo = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
-					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 50 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 10 },
-					new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 }
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 }
+			},
 				PrimaryColor = 53,
 				SecondaryColor = 53,
 				NotificationMessage = "~r~Grove Street Families~w~ are out for you."
 			} );
-			
+
 			// Ballas
 			dGang.Add( GANG_BAL, new GangData
 			{
-				// Temp vehicles
-				VehiclesHi = new[] { "PEYOTE3", "JACKAL", "TORNADO5", "BALLER3", "ORACLE", "BUCCANEER2", "PRIMO2", "ORACLE", "BATI", "THRUST", "SULTAN", "VOODOO", "CHINO2", "VIRGO3" },
-				VehiclesLo = new[] { "BMX", "BUCCANEER2", "BUFFALO", "EMPEROR", "MANANA", "FELON", "PEYOTE", "JACKAL", "TORNADO5", "BALLER3", "ORACLE", "PRIMO2", "RUFFIAN", "BATI", "SPEEDO", "VOODOO", "SABREGT", "CHINO2", "VIRGO3" },
+				VehiclesHi = new[] { "PEYOTE3", "JACKAL", "TORNADO5", "BALLER3", "ORACLE", "BUCCANEER2", "PRIMO2", "ORACLE", "BATI", "THRUST", "SULTAN", "VOODOO", "CHINO2", "VIRGO3", "IMPALER5", "HUSTLER" },
+				VehiclesLo = new[] { "BMX", "BUCCANEER2", "BUFFALO", "EMPEROR", "MANANA", "FELON", "PEYOTE", "JACKAL", "TORNADO5", "BALLER3", "ORACLE", "PRIMO2", "RUFFIAN", "BATI", "SPEEDO", "VOODOO", "SABREGT", "CHINO2", "VIRGO3", "IMPALER5" },
 				PedsHi = new[] { "IG_JOHNNY_GUNS", "IG_BALLAS_LEADER", "G_M_Y_BALLAORIG_01", "G_M_Y_BALLAORIG_01" },
 				PedsLo = new[] { "G_M_Y_BALLASOUT_01", "G_M_Y_BALLAEAST_01", "G_M_Y_STRPUNK_02", "G_F_Y_BALLAS_01", "G_M_Y_BALLAORIG_01" },
 				WeaponsHi = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 45 },
-					new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 45 },
-					new WeaponChance { WeaponHash = WeaponHash.CompactRifle, Chance = 45 },
-					new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 35 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.AssaultShotgun, Chance = 10 },
-					new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 },
-					new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 10 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.CompactRifle, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 35 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultShotgun, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 10 }
+			},
 				WeaponsLo = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
-					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 20 },
-					new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 20 },
-					new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 20 },
-					new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 15 },
-					new WeaponChance { WeaponHash = WeaponHash.CompactRifle, Chance = 15 },
-					new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.CompactRifle, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 }
+			},
 				PrimaryColor = 145,
 				SecondaryColor = 153,
 				NotificationMessage = "~r~Ballas~w~ are out balling to hunt you down!"
 			} );
 
 			// Vagos
-			dGang.Add( GANG_VAG, new GangData
+			dGang.Add( GANG_LSV, new GangData
 			{
-				// Temp vehicles
-				VehiclesHi = new[] { "TORNADO5", "EMPEROR", "BAGGER", "baller4", "baller3", "buccaneer2", "cavalcade", "PRIMO2", "PEYOTE3", "sabregt2", "virgo2", "landstalker2", "faction2", "contender", "voodoo", "huntley", "tampa3", "pcj", "baller7" },
-				VehiclesLo = new[] { "TORNADO5", "EMPEROR", "baller3", "BMX", "buccaneer2", "cavalcade", "MANANA", "PRIMO2", "PEYOTE", "PEYOTE3", "vigero", "sabregt2", "faction2", "Phoenix", "GRANGER", "voodoo", "pcj", "baller7" },
+				VehiclesHi = new[] { "TORNADO5", "EMPEROR", "BAGGER", "baller4", "baller3", "buccaneer2", "cavalcade", "PRIMO2", "PEYOTE3", "sabregt2", "virgo2", "landstalker2", "faction2", "contender", "voodoo", "huntley", "tampa3", "pcj", "baller7", "hermes" },
+				VehiclesLo = new[] { "TORNADO5", "EMPEROR", "baller3", "BMX", "buccaneer2", "cavalcade", "MANANA", "PRIMO2", "PEYOTE", "PEYOTE3", "vigero", "sabregt2", "faction2", "Phoenix", "GRANGER", "voodoo", "pcj", "baller7", "hermes" },
 				PedsHi = new[] { "G_M_M_MexBoss_01", "IG_Vagos_Leader", "G_M_M_MexBoss_02", "IG_VagSpeak", "MP_M_G_VagFun_01", "G_M_Y_MexGoon_02", "G_M_Y_MexGoon_02" },
 				PedsLo = new[] { "G_M_Y_MexGoon_01", "G_F_Y_Vagos_01", "G_M_Y_MexGoon_02", "G_M_Y_MexGoon_03", "A_M_Y_MexThug_01" },
 				WeaponsHi = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 50 },
-					new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 50 },
-					new WeaponChance { WeaponHash = WeaponHash.SpecialCarbine, Chance = 45 },
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.AssaultShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 15 },
-					new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 },
-					new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 10 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SpecialCarbine, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.MiniSMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CompactRifle, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 10 }
+			},
 				WeaponsLo = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
-					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 20 },
-					new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 15 },
-					new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 },
-					new WeaponChance { WeaponHash = WeaponHash.Bat, Chance = 10 },
-					new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 5 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.CompactRifle, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.MiniSMG, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.MachinePistol, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.Bat, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 5 }
+			},
 				PrimaryColor = 88,
 				SecondaryColor = 88,
-				NotificationMessage = "The ~r~Vagos~w~ tailed you and want you dead!"
+				NotificationMessage = "Watch out! The ~r~Vagos~w~ are coming after you!"
 			} );
-			
+
+			// Aztecas
+			dGang.Add( GANG_VLA, new GangData
+			{
+				VehiclesHi = new[] { "MESA", "SULTAN", "RANCHERXL", "Phoenix", "Rebel2", "SADLER", "DUBSTA2", "Kuruma", "Dominator3", "Cavalcade2", "warrener2" },
+				VehiclesLo = new[] { "MESA", "INGOT", "RANCHERXL", "EMPEROR", "Phoenix", "Picador", "Rebel", "DUBSTA", "Kuruma", "Dominator", "Enduro", "Cavalcade2" },
+				PedsHi = new[] { "G_M_Y_Azteca_01", "G_M_Y_Azteca_01", "IG_ORTEGA" },
+				PedsLo = new[] { "G_M_Y_Azteca_01" },
+				WeaponsHi = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol50, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 }
+			},
+				WeaponsLo = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol50, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 5 }
+			},
+				PrimaryColor = 140,
+				SecondaryColor = 134,
+				NotificationMessage = "Watch out! The ~r~Aztecas~w~ are coming after you!"
+			} );
+
+			// Marabunta Grande
+			dGang.Add( GANG_MBG, new GangData
+			{
+				VehiclesHi = new[] { "impaler6", "impaler5", "tornado", "peyote", "Manana", "virgo2", "moonbeam2", "sabregt2", "faction3" },
+				VehiclesLo = new[] { "impaler6", "impaler5", "tornado", "peyote", "Manana", "rebel", "virgo2", "sabregt2" },
+				PedsHi = new[] { "G_M_Y_SalvaGoon_01", "G_M_Y_SalvaGoon_02", "G_M_Y_SalvaGoon_03", "G_M_M_MaraGrande_01", "G_M_Y_SalvaBoss_01", "G_M_M_CartelGuards_01" },
+				PedsLo = new[] { "G_M_Y_SalvaGoon_01", "G_M_Y_SalvaGoon_02", "G_M_Y_SalvaGoon_03", "G_M_M_MaraGrande_01", "G_M_M_CartelGuards_01" },
+				WeaponsHi = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 }
+			},
+				WeaponsLo = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.AssaultRifle, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 10 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 5 }
+			},
+				PrimaryColor = 70,
+				SecondaryColor = 93,
+				NotificationMessage = "Watch out! The ~r~Marabunta Grande~w~ are coming after you!"
+			} );
+
+			// Los Santos Triads
+			dGang.Add( GANG_LST, new GangData
+			{
+				VehiclesHi = new[] { "DUBSTA", "oracle2", "cavalcade", "cavalcade3", "GRANGER2", "Hakuchou", "Washington", "BALLER8", "sentinel3" },
+				VehiclesLo = new[] { "Fugitive", "BISON", "oracle2", "cavalcade", "cavalcade3", "GRANGER", "Washington", "Hakuchou", "bati" },
+				PedsHi = new[] { "G_M_M_ChiBoss_01", "G_M_M_ChiGoon_01", "G_M_M_ChiGoon_02", "G_M_M_ChiBoss_01", "G_M_M_ChiGoon_01", "G_M_M_ChiGoon_02", "IG_Huang", "IG_GeorginaCheng", "IG_TaoCheng2", "IG_ChengSr" },
+				PedsLo = new[] { "G_M_M_ChiGoon_01", "G_M_M_ChiGoon_02" },
+				WeaponsHi = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifleMk2, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgunMk2, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.HeavyRifle, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.BullpupRifleMk2, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SniperRifle, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SMGMk2, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 }
+			},
+				WeaponsLo = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol50, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SMGMk2, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.AdvancedRifle, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 12 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 }
+			},
+				//PrimaryColor = 70,
+				//SecondaryColor = 93,
+				NotificationMessage = "Watch out! The ~r~Triads~w~ are coming after you!"
+			} );
+
+			// Main Characters!
+			dGang.Add( GANG_MGC, new GangData
+			{
+				VehiclesHi = new[] { "DUBSTA", "oracle2", "cavalcade", "cavalcade3", "GRANGER2", "Hakuchou", "Washington", "BALLER8", "sentinel3", "ASEA", "TAILGATER", "buffalo2", "Bodhi2", "ASEA", "TAILGATER", "buffalo2", "Bodhi2" },
+				VehiclesLo = new[] { "Fugitive", "BISON", "oracle2", "cavalcade", "cavalcade3", "GRANGER", "Washington", "Hakuchou", "bati", "ASEA", "TAILGATER", "buffalo2", "Bodhi2", "ASEA", "TAILGATER", "buffalo2", "Bodhi2" },
+				PedsHi = new[] { "Player_Zero", "Player_One", "Player_Two", "Player_Zero", "Player_One", "Player_Two", "IG_TracyDiSanto", "IG_JimmyDiSanto", "IG_AmandaTownley", "IG_DaveNorton", "IG_LesterCrest", "IG_SteveHains", "IG_Stretch", "IG_LamarDavis", "IG_Devin", "IG_NervousRon", "IG_Wade", "IG_Floyd" },
+				PedsLo = new[] { "Player_Zero", "Player_One", "Player_Two", "Player_Zero", "Player_One", "Player_Two", "IG_Denise", "IG_Cletus", "IG_SiemonYetarian", "IG_DaveNorton", "IG_LesterCrest", "IG_SteveHains", "IG_Stretch", "IG_LamarDavis", "IG_Devin", "IG_NervousRon", "IG_Wade", "IG_Floyd", "IG_Brad", "IG_RoccoPelosi", "IG_Ortega", "IG_Andreas" },
+				WeaponsHi = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifleMk2, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgunMk2, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.HeavyRifle, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SawnOffShotgun, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.BullpupRifleMk2, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SniperRifle, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SMGMk2, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatMG, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 }
+			},
+				WeaponsLo = new List<WeaponChance>
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 60 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol50, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SMGMk2, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.AdvancedRifle, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.Knife, Chance = 12 },
+				new WeaponChance { WeaponHash = WeaponHash.MG, Chance = 10 }
+			},
+				//PrimaryColor = 70,
+				//SecondaryColor = 93,
+				NotificationMessage = "Watch out! The ~r~Main Cast Characters~w~ are coming after you!"
+			} );
+
 			// San Andreas Govt.
 			dGang.Add( GANG_GOVT, new GangData
 			{
-				// Temp vehicles
 				VehiclesHi = new[] { "police", "police3", "police2", "policet", "RIOT", "police4", "police5", "SHERIFF", "sheriff2", "polterminus", "polcoquette4", "poldorado", "polgauntlet", "polimpaler5", "FBI", "FBI2" },
 				VehiclesLo = new[] { "police", "police3", "police2", "policeb", "police5", "SHERIFF", "sheriff2", "polfaction2", "polterminus", "polgreenwood", "polimpaler6", "polimpaler5" },
-				PedsHi = new[] { "S_M_Y_Swat_01", "S_M_Y_Cop_01", "S_M_Y_Sheriff_01", "S_M_Y_Cop_01", "S_M_Y_Sheriff_01", "S_M_Y_Marine_03", "S_M_M_CIASec_01", "S_M_M_FIBSec_01", "S_M_M_FIBOffice_01", "IG_FBISuit_01" },
+				PedsHi = new[] { "IG_SteveHains", "IG_DaveNorton", "U_M_M_DOA_01", "S_M_Y_Swat_01", "S_M_Y_Cop_01", "S_M_Y_Sheriff_01", "S_M_Y_Cop_01", "S_M_Y_Sheriff_01", "S_M_Y_Marine_03", "S_M_M_CIASec_01", "S_M_M_FIBSec_01", "S_M_M_FIBOffice_01", "IG_FBISuit_01" },
 				PedsLo = new[] { "S_F_Y_Cop_01", "S_M_Y_Cop_01", "S_M_Y_HwayCop_01", "S_M_Y_Sheriff_01", "S_F_Y_Sheriff_01" },
 				WeaponsHi = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.SpecialCarbine, Chance = 45 },
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.PistolMk2, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.SpecialCarbineMk2, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.CarbineRifleMk2, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.BullpupShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.SniperRifle, Chance = 20 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgunMk2, Chance = 50 },
+				new WeaponChance { WeaponHash = WeaponHash.SpecialCarbine, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.PistolMk2, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SpecialCarbineMk2, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifleMk2, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.BullpupShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.SniperRifle, Chance = 20 },
+			},
 				WeaponsLo = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 15 },
-					new WeaponChance { WeaponHash = WeaponHash.Nightstick, Chance = 5 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.Nightstick, Chance = 5 },
+			},
 				//PrimaryColor = 88,
 				//SecondaryColor = 88,
 				NotificationMessage = "The ~r~LSPD~w~ are coming for you!"
@@ -354,34 +539,41 @@ namespace GangHitSquads_CS_Script
 			// Duggan Crime Family (Online)
 			dGang.Add( GANG_DUG, new GangData
 			{
-				// Temp vehicles
-				VehiclesHi = new[] { "caracara2", "cavalcade3", "menacer" },
-				VehiclesLo = new[] { "kamacho", "caracara", "cavalcade3" },
+				VehiclesHi = new[] { "caracara2", "cavalcade3", "menacer", "everon" },
+				VehiclesLo = new[] { "kamacho", "caracara", "cavalcade3", "revolter", "everon" },
 				PedsHi = new[] { "S_M_Y_WestSec_01", "S_M_Y_WestSec_02", "S_M_M_HighSec_05", "S_M_M_HighSec_04" },
 				PedsLo = new[] { "S_M_Y_WestSec_01", "S_M_Y_WestSec_02", "S_M_M_HighSec_05", "S_M_M_HighSec_04" },
 				WeaponsHi = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.SpecialCarbine, Chance = 45 },
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.SpecialCarbineMk2, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.CarbineRifleMk2, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.BullpupRifle, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.BullpupShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.SniperRifle, Chance = 20 },
-				},
+			{
+				new WeaponChance { WeaponHash = WeaponHash.SpecialCarbine, Chance = 45 },
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.TacticalSMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.SpecialCarbineMk2, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifleMk2, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.BullpupRifle, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.BullpupShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.WM29Pistol, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.SniperRifle, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.CeramicPistol, Chance = 15 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 15 },
+			},
 				WeaponsLo = new List<WeaponChance>
-				{
-					new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
-					new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 40 },
-					new WeaponChance { WeaponHash = WeaponHash.CombatPDW, Chance = 35 },
-					new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 30 },
-					new WeaponChance { WeaponHash = WeaponHash.BullpupShotgun, Chance = 25 },
-					new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 15 },
-				},
-				//PrimaryColor = 88,
-				//SecondaryColor = 88,
+			{
+				new WeaponChance { WeaponHash = WeaponHash.Pistol, Chance = 75 },
+				new WeaponChance { WeaponHash = WeaponHash.SMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.MicroSMG, Chance = 40 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPDW, Chance = 35 },
+				new WeaponChance { WeaponHash = WeaponHash.CeramicPistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CombatPistol, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.CarbineRifle, Chance = 30 },
+				new WeaponChance { WeaponHash = WeaponHash.BullpupShotgun, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.WM29Pistol, Chance = 25 },
+				new WeaponChance { WeaponHash = WeaponHash.TacticalSMG, Chance = 20 },
+				new WeaponChance { WeaponHash = WeaponHash.PumpShotgun, Chance = 15 },
+			},
+				//PrimaryColor = 12,
+				//SecondaryColor = 84,
 				NotificationMessage = "The ~r~Duggans~w~ are coming for you!"
 			} );
 
@@ -392,10 +584,9 @@ namespace GangHitSquads_CS_Script
 		public void SetUpAttackingGang()
 		{
 			iCurrentGangIndex = GetRandomNumber( dGang.Count );
-			iMaxEnemies = GetRandomNumber( 4, 12 );
+			iMaxEnemies = GetRandomNumber( 5, 12 ); // 4, 12
 
 			// If the player is Franklin, do not pick Families to attack.
-			// If you want to exclude Grove Street Families for Franklin, for example:
 			// if (GetPlayerCharacter().Model == "Player_One" && iCurrentGangIndex == GROVE_STREET_FAMILIES)
 			// {
 			//     iCurrentGangIndex = (iCurrentGangIndex + 1) % dGang.Count; // Select next gang if GSF
@@ -413,8 +604,9 @@ namespace GangHitSquads_CS_Script
 				secondaryColor = selectedGang.SecondaryColor;
 
 				// Alert the player of which gang will attack next
-				string message = $"{ selectedGang.NotificationMessage } { iMaxEnemies } Active goons!";
-				ShowNotification( message, "CHAR_SIMEON" ); // PLACEHOLDER CHARACTER ICON
+				string message = $"{ selectedGang.NotificationMessage } ~r~{ iMaxEnemies } Active Enemies~w~!";
+				//ShowNotification( message, "CHAR_SIMEON" ); // PLACEHOLDER CHARACTER ICON
+				ShowTutorialText( message, 3000 );
 			}
 
 			Function.Call( Hash.PLAY_SOUND_FRONTEND, 0, "CHECKPOINT_NORMAL", "HUD_MINI_GAME_SOUNDSET" );
@@ -455,6 +647,10 @@ namespace GangHitSquads_CS_Script
 					break;
 				}
 			}
+			if ( e.KeyCode == Keys.X )
+			{
+				SpawnVehicleEnemy();
+			}
 		}
 
 		// ===========================================================================
@@ -483,19 +679,20 @@ namespace GangHitSquads_CS_Script
 			switch ( sType )
 			{
 				case "Tick":
+					// Active cleanup for dead peds or if we are far away from them
 					foreach ( Ped pedCleanUp in enemiesToDel.ToList() )
 					{
-						if ( spawnedEnemies.Contains( pedCleanUp ) )
+						if ( activeSpawnedHitmen.Contains( pedCleanUp ) )
 						{
 							pedCleanUp.MarkAsNoLongerNeeded();
-							spawnedEnemies.Remove( pedCleanUp );
+							activeSpawnedHitmen.Remove( pedCleanUp );
 						}
 					}
 					enemiesToDel.Clear();
-				break;
+					break;
 
 				case "OnScriptEnd": // Cleanup for Ending the script
-					foreach ( Ped member in spawnedEnemies )
+					foreach ( Ped member in activeSpawnedHitmen )
 					{
 						// Clear peds from memory and make them flee and remove their blips
 						member.MarkAsNoLongerNeeded();
@@ -510,23 +707,24 @@ namespace GangHitSquads_CS_Script
 						RemoveBlipFromPed( member );
 					}
 					enemiesToDel.Clear();
-
 					Function.Call( Hash.CLEAR_PLAYER_WANTED_LEVEL, Game.Player );
-					//ShowNotification( "You win! They give up!", "CHAR_SIMEON" );
 					ShowTutorialText( "You've survived the attack. All ~r~Enemies~w~ are retreating", 3000 );
 					eState = eScriptStatus.Off;
 					iMaxEnemies = 0;
 
-					Wait( 3000 );
+					// Reset all script variables
+					ClearScriptVars();
+
+					Wait( 2000 );
 
 					int moneyAdded = 2000;
 					Game.Player.Money += moneyAdded;
-					ShowTutorialText( $"You've been awarded ~g~${ moneyAdded }~w~ for surviving the attack." );
+					ShowTutorialText( $"You've been awarded ~g~${moneyAdded}~w~ for surviving the attack." );
 					Function.Call( Hash.PLAY_SOUND_FRONTEND, 0, "PICK_UP", "HUD_FRONTEND_DEFAULT_SOUNDSET" );
 
 					Wait( 2000 );
 					GetPlayerCharacter().PlayAmbientSpeech( "GENERIC_THANKS" );
-				break;
+					break;
 			}
 		}
 
@@ -556,7 +754,7 @@ namespace GangHitSquads_CS_Script
 						return true;  // Ped is considered stuck
 					}
 
-					lastPositions[pEnemy] = currentPosition;
+					lastPositions[ pEnemy ] = currentPosition;
 				}
 			}
 			return false;
@@ -567,40 +765,76 @@ namespace GangHitSquads_CS_Script
 			if ( eState == eScriptStatus.Running )
 			{
 				int enemiesCanFight = 0;
-				foreach ( Ped pEnemy in spawnedEnemies )
+				// Track peds that have already dropped pickups to avoid duplicates
+				List<Ped> processedPeds = new List<Ped>();
+
+				foreach ( Ped pEnemy in activeSpawnedHitmen.ToList() ) // Use ToList to avoid collection modification issues
 				{
 					float pedDistance = pEnemy.Position.DistanceTo( GetPlayerCharacter().Position );
-					// Check if the enemy is in a vehicle
 					bool isInVehicle = pEnemy.IsInVehicle();
-					// Use a larger distance threshold if the enemy is in a vehicle
 					float distanceThreshold = isInVehicle ? fInVehicleGangCullDistance : fOnFootGangCullDistance;
-					// Make sure our ped is alive and not far away from the player.
-					// If they aren't, then they are able to fight.
+
+					// Check if ped is alive and within range
 					if ( pEnemy.IsAlive && pedDistance < distanceThreshold )
 					{
 						enemiesCanFight++;
 					}
-					else // If not, then put them in the pool to be removed
+					else if ( !pEnemy.IsAlive && !processedPeds.Contains( pEnemy ) )
 					{
+						// Check if the ped was killed by the player and hasn't dropped a pickup yet
+						SpawnPickupOnDeath( pEnemy );
+						processedPeds.Add( pEnemy ); // Mark as processed
+						RemoveBlipFromPed( pEnemy );
+						enemiesToDel.Add( pEnemy ); // Mark for cleanup
+					}
+					else
+					{
+						// Ped is too far or already processed, mark for cleanup
 						RemoveBlipFromPed( pEnemy );
 						enemiesToDel.Add( pEnemy );
 					}
 				}
 
-				ShowSubtitleText( $"Enemies Can Fight: ~y~{ enemiesCanFight }~n~~w~Max Enemies: ~y~{ iMaxEnemies }" );
+				if ( bIsDebugMode )
+				{
+					ShowSubtitleText( $"Enemies Can Fight: ~y~{ enemiesCanFight }~n~~w~Max Enemies: ~y~{ iMaxEnemies }" );
+				}
 
 				if ( enemiesCanFight < iMaxEnemies )
-					if ( GetRandomNumber( 500000 ) < 42500 )
+				{
+					if ( GetRandomNumber( 350000 ) < 42500 )
+					{
 						if ( GetRandomNumber( 100 ) > 25 )
 							SpawnFootEnemy();
 						else
 							SpawnVehicleEnemy();
+					}
+				}
 			}
 		}
 
 		// ===========================================================================
 		// PED RELATED FUNCTIONS
 		// ===========================================================================
+
+		public void SpawnPickupOnDeath( Ped pEnemy )
+		{
+			if ( pEnemy.IsDead && pEnemy.Killer == GetPlayerCharacter() )
+			{
+				Vector3 deathPos = pEnemy.Position;
+				int randomPickupType = GetRandomNumber( 2 ); // 0 for Health, 1 for Armor
+
+				// Define the pickup hash based on the random choice
+				uint pickupHash = randomPickupType == 0 ? ( uint )PickupType.Health : ( uint )PickupType.Armour;
+
+				// Spawn the pickup
+				if ( GetRandomNumber( 100 ) < 65 )
+				{
+					OutputArgument handle = new OutputArgument();
+					Function.Call( Hash.CREATE_NON_NETWORKED_AMBIENT_PICKUP, pickupHash, deathPos.X, deathPos.Y, deathPos.Z + 0.5f, 0, 100, 1, false, true );
+				}
+			}
+		}
 
 		public void GiveWeaponsToPed( Ped pEnemy )
 		{
@@ -648,7 +882,7 @@ namespace GangHitSquads_CS_Script
 
 					if ( seat == VehicleSeat.Driver )
 					{
-						pEnemy.Task.DriveTo( enemyVehicle, GetPlayerCharacter().Position, 90f, VehicleDrivingFlags.DrivingModeAvoidVehiclesReckless, 2.0f );
+						pEnemy.Task.DriveTo( enemyVehicle, GetPlayerCharacter().Position, 90f, VehicleDrivingFlags.DrivingModeAvoidVehiclesReckless, 20f );
 					}
 				}
 			}
@@ -731,6 +965,8 @@ namespace GangHitSquads_CS_Script
 						}
 					}
 
+					Function.Call( Hash.SET_VEHICLE_SIREN, enemyVehicle, true );
+
 					// Add Blip
 					Blip blip = enemyVehicle.AddBlip();
 					if ( blip != null )
@@ -743,7 +979,7 @@ namespace GangHitSquads_CS_Script
 			}
 			catch ( Exception )
 			{
-				ShowNotification( $"Invalid vehicle model: {enemyVehicleModel}" );
+				ShowNotification( $"Invalid vehicle model: { enemyVehicleModel }" );
 			}
 		}
 
@@ -752,7 +988,7 @@ namespace GangHitSquads_CS_Script
 			int count = 0;
 			for ( int seatIndex = -1; seatIndex <= 15; seatIndex++ ) // -1 for driver, 0-15 for passengers
 			{
-				VehicleSeat seat = (VehicleSeat)seatIndex;
+				VehicleSeat seat = ( VehicleSeat ) seatIndex;
 				if ( vehicle.IsSeatFree( seat ) )
 				{
 					count++;
@@ -765,36 +1001,36 @@ namespace GangHitSquads_CS_Script
 		{
 			Vector3 playerPos = GetPlayerCharacter().Position;
 			Vector3 randomPos;
-			float minDistance = 25, maxDistance = 60;
+			float fMinDistance = 25, fMaxDistance = 60;
 
 			if ( GetPlayerCharacter().IsInVehicle() )
 			{
 				if ( sSpawnType == "Vehicle" )
 				{
-					minDistance = 175;
-					maxDistance = 200;
+					fMinDistance = 175;
+					fMaxDistance = 200;
 				}
 				else if ( sSpawnType == "StreetPed" )
 				{
-					minDistance = 25;
-					maxDistance = 60;
+					fMinDistance = 25;
+					fMaxDistance = 60;
 				}
 			}
 			else
 			{
 				if ( sSpawnType == "Vehicle" )
 				{
-					minDistance = 100;
-					maxDistance = 150;
+					fMinDistance = 100;
+					fMaxDistance = 150;
 				}
 				else if ( sSpawnType == "StreetPed" )
 				{
-					minDistance = 25;
-					maxDistance = 60;
+					fMinDistance = 25;
+					fMaxDistance = 60;
 				}
 			}
 
-			randomPos = playerPos.Around( GetRandomNumber( ( int ) minDistance, ( int ) maxDistance ) );
+			randomPos = playerPos.Around( GetRandomNumber( ( int ) fMinDistance, ( int ) fMaxDistance ) );
 
 			switch ( sSpawnType )
 			{
@@ -844,13 +1080,15 @@ namespace GangHitSquads_CS_Script
 					pEnemy.Health = 200;
 				}
 
-				pEnemy.Accuracy = 50;
+				pEnemy.Accuracy = GetRandomNumber( 25, 50 );
 				pEnemy.ShootRate = 100;
 				pEnemy.CanSwitchWeapons = true;
 
 				// Have a 25% chance for Elite Peds to get some armor, if not elite, no armor added
 				pEnemy.Armor = bisElitePed && GetRandomNumber( 100 ) > 75 ? GetRandomNumber( 25, 50 ) : 0;
 				pEnemy.Money = GetRandomNumber( 40 );
+
+				activeSpawnedHitmen.Add( pEnemy );
 
 				GiveWeaponsToPed( pEnemy );
 				RandomizePedAppearance( pEnemy );
@@ -884,8 +1122,6 @@ namespace GangHitSquads_CS_Script
 				Blip blip = pEnemy.AddBlip();
 				ConfigureBlip( blip, "StreetPed" );
 				dBlip.Add( pEnemy, blip );
-
-				spawnedEnemies.Add( pEnemy );
 			}
 		}
 
@@ -972,6 +1208,13 @@ namespace GangHitSquads_CS_Script
 				int randomWheel = GetRandomNumber( 0, wheelModCount);
 				Function.Call( Hash.SET_VEHICLE_MOD, vehicle, 23, randomWheel, false );
 			}
+		}
+
+		public void SetCharAppearance( Ped ped )
+		{
+			// TODO: Set premade character apperances for certain NPC peds
+			// and Multiplayer peds. This is to fix floating arms, clipping
+			// clothing items, ect. Mainly towards MP characters.
 		}
 
 		public void RandomizePedAppearance( Ped ped )
